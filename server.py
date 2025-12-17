@@ -7,6 +7,7 @@ from config import s3
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 import asyncio
+from metadata import add_file, mark_processed
 
 
 app = FastAPI()
@@ -20,32 +21,46 @@ async def upload_urls(payload: URLItem):
     url_strings = [str(url) for url in payload.urls]
     raw_keys = upload_html_to_s3(url_strings)
 
-    if not raw_keys:
-        raise HTTPException(status_code=400, detail="No files uploaded.")
+    for key, url in zip(raw_keys, url_strings):
+        add_file(file_name=key.split("/")[-1], s3_key=key, bucket="raw", source_url=url)
 
     loop = asyncio.get_running_loop()
-    tasks = [loop.run_in_executor(executor, process_raw, key) for key in raw_keys]
-    processed_keys = await asyncio.gather(*tasks)
+    tasks = [loop.run_in_executor(executor, process_and_mark, key) for key in raw_keys]
+    await asyncio.gather(*tasks)
+    return {"raw": raw_keys}
 
-    return {"raw": raw_keys, "processed": processed_keys}
+def process_and_mark(raw_key):
+    process_raw(raw_key)
+    mark_processed(raw_key.split("/")[-1])
+
 
 @app.post("/upload-file")
-async def upload_file(file: UploadFile):
+async def upload_file(file: UploadFile, tags: List[str] = None, notes: str = ""):
     raw_key = f"raw/files/{datetime.utcnow().strftime('%Y/%m/%d')}/{file.filename}"
     content = await file.read()
+
+    content_type = file.content_type or "application/octet-stream"
 
     s3.put_object(
         Bucket="raw",
         Key=raw_key,
         Body=content,
-        ContentType=file.content_type,
+        ContentType=content_type,
         Metadata={"uploaded_at": datetime.utcnow().isoformat()}
     )
 
-    loop = asyncio.get_running_loop()
-    asyncio.create_task(loop.run_in_executor(executor, process_raw, raw_key))
+    add_file(
+        file_name=file.filename,
+        s3_key=raw_key,
+        bucket="raw",
+        file_size=len(content),
+        mime_type=content_type,
+        tags=tags,
+        notes=notes
+    )
 
     return {"raw_key": raw_key}
+
 
 @app.post("/minio-notify")
 async def minio_notify(request: Request):
