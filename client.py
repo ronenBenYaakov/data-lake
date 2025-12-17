@@ -1,20 +1,22 @@
 import requests
 
-API_URL = "http://localhost:7860/upload"  # or replace with server IP if remote
+# URL of your FastAPI server
+SERVER_URL = "http://localhost:7860/upload"
 
-urls = [
-    "https://en.wikipedia.org/wiki/Law",
-    "https://en.wikipedia.org/wiki/Artificial_intelligence"
+# List of URLs to upload
+urls_to_upload = [
+    'https://en.wikipedia.org/wiki/Blairstown,_New_Jersey'
 ]
 
-payload = {"urls": urls}
+# Prepare payload as required by your API
+payload = {"urls": urls_to_upload}
 
 try:
-    response = requests.post(API_URL, json=payload, timeout=30)
-    response.raise_for_status()
+    response = requests.post(SERVER_URL, json=payload)
+    response.raise_for_status()  # Raise error if status code is not 2xx
     data = response.json()
     print("Uploaded files:")
     for f in data.get("uploaded", []):
         print(f)
-except requests.RequestException as e:
-    print("Error uploading URLs:", e)
+except requests.exceptions.RequestException as e:
+    print(f"Request failed: {e}")
